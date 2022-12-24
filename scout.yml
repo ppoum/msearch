@@ -1,0 +1,4 @@
+stop_timeout: 10                # in seconds
+job_size: 8192                  # in # of targets/packets
+send_rate: 1000                 # in packets per second
+dispatcher_base: "http://localhost:8000"
