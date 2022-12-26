@@ -10,3 +10,4 @@ rocket = { version = "0.5.0-rc.2", features = ["json"] }
 serde = { version = "1.0", features = ["derive"] }
 ipnet = "2.5"
 itertools = "0.10"
+rand = "0.8"
