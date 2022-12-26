@@ -8,7 +8,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::{result, thread};
 use std::error::Error;
 use clap::{Parser, ArgGroup};
-use ipnet::Ipv4AddrRange;
 use pnet::datalink::NetworkInterface;
 use serde_json::Value;
 
@@ -135,9 +134,10 @@ fn get_job() -> (Vec<Ipv4Addr>, u32) {
         .unwrap().text().unwrap();
     let json: Value = serde_json::from_str(&res).unwrap();
     let job_id: u32 = json["id"].as_u64().unwrap() as u32;
-    let job: Vec<Ipv4Addr> = Ipv4AddrRange::new(json["min"].as_str().unwrap().parse().unwrap(),
-                                                json["max"].as_str().unwrap().parse().unwrap()).collect();
-    (job, job_id)
+    let ips: Vec<Ipv4Addr> = json["ips"].as_array().unwrap().iter()
+        .map(|x| x.as_str().unwrap().parse().unwrap()).collect();
+
+    (ips, job_id)
 }
 
 fn print_adapter_info(adapter: &NetworkInterface) {

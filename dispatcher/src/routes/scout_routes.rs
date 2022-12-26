@@ -1,7 +1,6 @@
 use std::collections::VecDeque;
 use std::net::Ipv4Addr;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::time::SystemTime;
 use itertools::Itertools;
 use rocket::{get, Route, State};
 use rocket::response::status;
@@ -17,26 +16,13 @@ static JOB_ID: AtomicU32 = AtomicU32::new(0);
 #[serde(crate = "rocket::serde")]
 pub struct ScoutJob {
     id: u32,
-    min: Ipv4Addr,
-    max: Ipv4Addr
-}
-
-// Implement default since scout does not send creation_time in its request
-impl Default for ScoutJob {
-    fn default() -> Self {
-        ScoutJob {
-            id: 0,
-            min: Ipv4Addr::new(0, 0, 0, 0),
-            max: Ipv4Addr::new(0, 0, 0, 0)
-        }
-    }
+    ips: Vec<Ipv4Addr>
 }
 
 impl Serialize for ScoutJob {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
         let mut state = serializer.serialize_struct("IpRange", 2)?;
-        state.serialize_field("min", &self.min.to_string())?;
-        state.serialize_field("max", &self.max.to_string())?;
+        state.serialize_field("ips", &self.ips)?;
         state.serialize_field("id", &self.id)?;
         state.end()
     }
@@ -51,21 +37,19 @@ pub fn get_all_routes() -> Vec<Route> {
 
 #[get("/job/<size>")]
 fn get_job(size: usize, state: &State<ServerState>) -> Json<ScoutJob> {
-    let mut range = state.ip_range.lock().unwrap();
-    let x: Vec<Ipv4Addr> = range.take(size).collect();
+    let mut ip_iterator = state.ip_range.lock().unwrap();
+    // let x: Vec<Ipv4Addr> = ip_iterator.take(size).collect();
+    let mut ips: Vec<Ipv4Addr> = Vec::new();
 
-    // Manually advance original iterator
-    for _ in 0..size {
-        if range.next().is_none() {
-            // Reached end of iterator, reset it and exit loop
-            state.reset_ip_range();
-            break;
+    while ips.len() < size {
+        match ip_iterator.next() {
+            Some(ip) => ips.push(ip),
+            None => ip_iterator.regenerate()  // Iterator is empty, refill it
         }
     }
 
     let new_job = ScoutJob {
-        min: *x.get(0).unwrap(),
-        max: *x.last().unwrap(),
+        ips,
         id: JOB_ID.fetch_add(1, Ordering::SeqCst)
     };
     Json(new_job)

@@ -3,7 +3,6 @@ use std::net::Ipv4Addr;
 use std::ops::Add;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use std::thread;
 use std::thread::sleep;
 use std::time::{Duration, SystemTime};
 use pnet::datalink::{Channel, Config, NetworkInterface};
@@ -26,7 +25,7 @@ pub fn sender_thread(iface: &NetworkInterface, ips: &Vec<Ipv4Addr>, sender_finis
         Ok(_) => panic!("Wrong chanel type"),
         Err(e) => panic!("Error creating channel: {}", e)
     };
-    println!("Sending {}-{}", ips.first().unwrap(), ips.last().unwrap());
+    println!("Sending new packets");
 
     let time_per_packet = Duration::from_micros((1000000.0 / config::get_send_rate() as f64) as u64);
     println!("TPP: {} ms", time_per_packet.as_millis());
@@ -34,7 +33,7 @@ pub fn sender_thread(iface: &NetworkInterface, ips: &Vec<Ipv4Addr>, sender_finis
         tx.build_and_send(1, 66, &mut |packet: &mut [u8]| {
             generate_syn_packet(iface, ip, 25565, packet);
         });
-        thread::sleep(time_per_packet);
+        sleep(time_per_packet);
     }
     sender_finish_signal.store(true, Ordering::Relaxed);
 }
