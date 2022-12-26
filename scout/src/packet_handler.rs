@@ -17,7 +17,7 @@ pub fn generate_syn_packet(iface: &NetworkInterface, dest_ip: &Ipv4Addr, port: u
 
     // Generate L2 header
     let mut eth_pkt = MutableEthernetPacket::new(&mut pkt[..L2_SIZE]).unwrap();
-    eth_pkt.set_destination(MacAddr::broadcast());  // TODO Check gateway mac address?
+    eth_pkt.set_destination(MacAddr::broadcast());
     eth_pkt.set_source(iface.mac.unwrap());
     eth_pkt.set_ethertype(EtherTypes::Ipv4);
 

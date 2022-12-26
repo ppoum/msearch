@@ -24,8 +24,6 @@ fn main() -> Result<()> {
 
     let job_dispatch = Arc::new(Mutex::new(IpDispatcher::new()));
 
-    // TODO Ctrl+C handler that sets stop_signal to true, graciously terminate threads
-
     let mut thread_handles = Vec::new();
     for tid in 0..THREAD_COUNT {
         let stop_sig_copy = Arc::clone(&stop_signal);

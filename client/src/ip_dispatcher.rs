@@ -13,10 +13,9 @@ impl IpDispatcher {
     }
 
     pub fn get_job(&mut self) -> Vec<Ipv4Addr> {
-        // TODO loop by creating new ip_range (if global config flag is set?)
         let x = self.ip_range.take(crate::JOB_SIZE).collect();
 
-        // advance_by and next_chunk are both only in nightly
+        // advance_by and next_chunk are both only in nightly, manually advance
         for _ in 0..crate::JOB_SIZE {
             self.ip_range.next();
         }

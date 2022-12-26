@@ -12,8 +12,8 @@ use crate::routes::{client_routes, info_routes};
 
 pub struct ServerState {
     ip_range: Mutex<Ipv4AddrRange>,
-    outstanding_scout_jobs: Mutex<Vec<ScoutJob>>,  // TODO Make queue?
-    valid_ips: Mutex<VecDeque<Ipv4Addr>>  // TODO Make queue instead of vector
+    outstanding_scout_jobs: Mutex<Vec<ScoutJob>>,
+    valid_ips: Mutex<VecDeque<Ipv4Addr>>
 }
 
 impl ServerState {
@@ -26,12 +26,6 @@ impl ServerState {
 
 #[launch]
 fn rocket() -> _ {
-    // TODO Cleanup thread that adds unresolved ip chunks to priority queue
-    // TODO Create InfiniteIpv4AddrRange struct, which auto loops when all ips have
-    //  have been exhausted and skips LAN ranges
-    // TODO Add queue for outstanding jobs if scout client does not report back completion status after n time
-    //  Add job chunk back to pool if no answer from client (separate priority pool to avoid messing with IP range pool?)
-    // TODO Save state on shutdown (store in file ips, ip range, etc...)
     rocket::build()
         .mount("/scout", scout_routes::get_all_routes())
         .mount("/info", info_routes::get_all_routes())

@@ -34,7 +34,6 @@ pub type Result<T> = result::Result<T, Box<dyn Error>>;
 
 
 fn main() -> Result<()> {
-    // TODO reorganize dependencies
     let cli = Cli::parse();
 
     if cli.list_adapters {
@@ -90,8 +89,6 @@ fn main() -> Result<()> {
 
 
         // Start sender thread
-        // TODO With new architecture, we only have 1 thread and we block until
-        //  it is done. Can refactor into function instead of thread?
         {
             let iface = interface.clone();
             let sender_finish_signal = sender_finish_signal.clone();

@@ -32,7 +32,6 @@ pub fn sender_thread(iface: &NetworkInterface, ips: &Vec<Ipv4Addr>, sender_finis
     println!("TPP: {} ms", time_per_packet.as_millis());
     for ip in ips {
         tx.build_and_send(1, 66, &mut |packet: &mut [u8]| {
-            // TODO don't hardcode port?
             generate_syn_packet(iface, ip, 25565, packet);
         });
         thread::sleep(time_per_packet);
@@ -58,7 +57,6 @@ pub fn sender_thread(iface: &NetworkInterface, ips: &Vec<Ipv4Addr>, sender_finis
 /// * `sender_finish_signal`: Should be set to true when the sender is done with its batch
 ///
 pub fn receiver_thread(iface: &NetworkInterface, valid_ips_mtx: &Mutex<Vec<Ipv4Addr>>, stop_signal: &AtomicBool, sender_finish_signal: &AtomicBool) {
-    // TODO Set timeout time using param
     // Create channel (get packets with a timeout of 1s)
     let pnet_config = Config {
         read_timeout: Option::from(Duration::from_secs(1)),
@@ -99,7 +97,6 @@ pub fn receiver_thread(iface: &NetworkInterface, valid_ips_mtx: &Mutex<Vec<Ipv4A
 
         match rx.next() {
             Ok(packet) => {
-                // TODO don't hardcode port?
                 if let Some((ip, syn_ack)) = validate_response(packet, 25565) {
                     // Response from server
 

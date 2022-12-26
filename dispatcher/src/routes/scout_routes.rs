@@ -53,7 +53,6 @@ pub fn get_all_routes() -> Vec<Route> {
 
 #[get("/job/<size>")]
 fn get_job(size: usize, state: &State<ServerState>) -> Json<ScoutJob> {
-    // TODO Add to outstanding job chunk list, prioritize pool of non-completed chunks when created
     let mut range = state.ip_range.lock().unwrap();
     let x: Vec<Ipv4Addr> = range.take(size).collect();
 

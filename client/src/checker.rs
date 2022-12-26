@@ -5,8 +5,6 @@ use serde_json::Value;
 use crate::data_types::var_int::*;
 use crate::data_types::protocol_string::*;
 
-// TODO rewrite as MCPacket class, with writeVarInt, writeString, etc... methods
-
 pub fn validate_server(addr: Ipv4Addr) -> Result<Value> {
     let socket_addr = SocketAddr::new(IpAddr::V4(addr), 25565);
     let mut stream = TcpStream::connect_timeout(&socket_addr, Duration::from_secs(crate::TCP_TIMEOUT_SECS))?;
