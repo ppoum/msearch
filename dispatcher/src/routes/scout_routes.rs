@@ -17,7 +17,6 @@ static JOB_ID: AtomicU32 = AtomicU32::new(0);
 #[serde(crate = "rocket::serde")]
 pub struct ScoutJob {
     id: u32,
-    creation_time: SystemTime,
     min: Ipv4Addr,
     max: Ipv4Addr
 }
@@ -27,7 +26,6 @@ impl Default for ScoutJob {
     fn default() -> Self {
         ScoutJob {
             id: 0,
-            creation_time: SystemTime::now(),
             min: Ipv4Addr::new(0, 0, 0, 0),
             max: Ipv4Addr::new(0, 0, 0, 0)
         }
@@ -45,7 +43,7 @@ impl Serialize for ScoutJob {
 }
 
 pub fn get_all_routes() -> Vec<Route> {
-    routes![get_job, post_job, post_ips]
+    routes![get_job, post_ips]
 }
 
 
@@ -68,28 +66,13 @@ fn get_job(size: usize, state: &State<ServerState>) -> Json<ScoutJob> {
     let new_job = ScoutJob {
         min: *x.get(0).unwrap(),
         max: *x.last().unwrap(),
-        id: JOB_ID.fetch_add(1, Ordering::SeqCst),
-        creation_time: SystemTime::now(),
+        id: JOB_ID.fetch_add(1, Ordering::SeqCst)
     };
-    state.outstanding_scout_jobs.lock().unwrap().push(new_job.clone());
     Json(new_job)
 }
 
-#[post("/job/<id>")]
-fn post_job(id: u32, state: &State<ServerState>) -> Result<status::Accepted<String>, status::BadRequest<String>> {
-    let mut job_vec = state.outstanding_scout_jobs.lock().unwrap();
-
-    if let Some(idx) = job_vec.iter().position(|x| x.id == id) {
-        // Job id exists, remove from list
-        job_vec.remove(idx);
-    }
-
-    println!("Job {} confirmed as valid.", id);
-    Ok(status::Accepted(None))
-}
-
 #[post("/ips", data = "<json>")]
-fn post_ips(json: &str, state: &State<ServerState>) -> Result<status::Accepted<String>, status::BadRequest<String>> {
+fn post_ips(json: &str, state: &State<ServerState>) -> Result<status::Accepted<String>, BadRequest<String>> {
     let ips: Vec<String> = json::from_str(json).map_err(|e| BadRequest(Some(e.to_string())))?;
     let ips: VecDeque<Ipv4Addr> = ips.iter().map(|x| x.parse().unwrap()).unique().collect();
     println!("Received the following ips: {:?}", ips);

@@ -12,7 +12,6 @@ use crate::routes::{client_routes, info_routes};
 
 pub struct ServerState {
     ip_range: Mutex<Ipv4AddrRange>,
-    outstanding_scout_jobs: Mutex<Vec<ScoutJob>>,
     valid_ips: Mutex<VecDeque<Ipv4Addr>>
 }
 
@@ -33,7 +32,6 @@ fn rocket() -> _ {
         .manage(ServerState {
             ip_range: Mutex::new(Ipv4AddrRange::new("1.0.0.0".parse().unwrap(),
             "255.255.255.255".parse().unwrap())),
-            outstanding_scout_jobs: Mutex::new(Vec::new()),
             valid_ips: Mutex::new(VecDeque::new())
         })
 }
