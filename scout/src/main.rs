@@ -101,7 +101,6 @@ fn main() -> Result<()> {
         handle.join().expect("sender thread panic!");
 
         println!("Finished job #{}", job_id);
-        confirm_job(job_id);
 
         // Lock ip vec mutex
         let mut valid_ips = valid_ips_mtx.lock().unwrap();
@@ -120,12 +119,6 @@ fn main() -> Result<()> {
 
     receiver_handle.join().expect("receiver thread panic!");
     Ok(())
-}
-
-fn confirm_job(id: u32) -> bool{
-    let client = reqwest::blocking::Client::new();
-    let url = format!("{}/scout/job/{}", config::get_dispatcher_base(), id);
-    client.post(url).send().is_ok()
 }
 
 fn upload_ips(ips: &Vec<Ipv4Addr>) -> bool {
