@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::{result, thread};
 use std::error::Error;
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use clap::{Parser, ArgGroup};
 use pnet::datalink::{Channel, NetworkInterface};
 use serde_json::Value;
@@ -96,16 +96,17 @@ fn main() -> Result<()> {
 
         // Lock ip vec mutex
         let mut valid_ips = valid_ips_mtx.lock().unwrap();
-        println!("{:?}", valid_ips);
-        if upload_ips(&valid_ips) {
-            // Successful upload
-            println!("Successfully uploaded job result");
-        } else {
-            println!("Could not upload job to dispatch server");
-            break;
+        if valid_ips.len() > 0 {
+            println!("{:?}", valid_ips);
+            if upload_ips(&valid_ips) {
+                // Successful upload
+                println!("Successfully uploaded job result");
+                valid_ips.clear();
+            } else {
+                println!("Could not upload job to dispatch server");
+                break;
+            }
         }
-        // Done using ip vector, clear vector and set finish signal to false again
-        valid_ips.clear();
         sender_finish_signal.store(false, Ordering::Relaxed);
     }
 
@@ -122,12 +123,17 @@ pub fn send_packets(iface: &NetworkInterface, ips: &Vec<Ipv4Addr>) {
     println!("Sending new packets");
 
     let time_per_packet = Duration::from_micros((1000000.0 / config::get_send_rate() as f64) as u64);
-    println!("TPP: {} ms", time_per_packet.as_millis());
+    println!("TPP: {} us", time_per_packet.as_micros());
     for ip in ips {
+        let before = SystemTime::now();
         tx.build_and_send(1, 66, &mut |packet: &mut [u8]| {
             generate_syn_packet(iface, ip, 25565, packet);
         });
-        sleep(time_per_packet);
+        let after = SystemTime::now();
+        let delta = after.duration_since(before).unwrap();
+        if delta < time_per_packet {
+            sleep(time_per_packet - delta);
+        }
     }
 }
 

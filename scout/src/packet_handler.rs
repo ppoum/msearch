@@ -78,10 +78,22 @@ pub fn validate_response(packet: &[u8], port: u16) -> Option<(Ipv4Addr, bool)> {
     };
     if tcp.get_source() != port { return None; }  // Wrong port
 
-    // println!("{}:{} --> {}:{}",
-    //         ipv4.get_source(), tcp.get_source(),
-    //         ipv4.get_destination(), tcp.get_destination());
-
     let is_syn_ack = (tcp.get_flags() & TcpFlags::SYN) != 0 && (tcp.get_flags() & TcpFlags::ACK) != 0;
     Some((ipv4.get_source(), is_syn_ack))
+}
+
+pub fn validate_sanity_reply(packet: &[u8]) -> bool {
+    let ethernet = match EthernetPacket::new(packet) {
+        Some(x) => x,
+        None => return false
+    };
+
+    let ipv4 = match Ipv4Packet::new(ethernet.payload()) {
+        Some(x) => x,
+        None => return false
+    };
+
+    if ipv4.get_source() != Ipv4Addr::new(1, 1, 1, 1) { return false; }
+
+    true
 }
