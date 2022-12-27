@@ -7,9 +7,12 @@ use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{result, thread};
 use std::error::Error;
+use std::thread::sleep;
+use std::time::Duration;
 use clap::{Parser, ArgGroup};
-use pnet::datalink::NetworkInterface;
+use pnet::datalink::{Channel, NetworkInterface};
 use serde_json::Value;
+use crate::packet_handler::generate_syn_packet;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -66,9 +69,9 @@ fn main() -> Result<()> {
         }).expect("Error setting Ctrl+C handler");
     }
 
-    let sender_finish_signal = Arc::new(AtomicBool::new(false));
 
     // Start receiver thread
+    let sender_finish_signal = Arc::new(AtomicBool::new(false));
     let valid_ips_mtx = Arc::new(Mutex::new(Vec::new()));
     let receiver_handle;
     {
@@ -84,20 +87,10 @@ fn main() -> Result<()> {
     // Send while we haven't received a stop signal
     while !stop_signal.load(Ordering::Relaxed) {
         let (ips, job_id) = get_job();
-        let handle;
 
-
-        // Start sender thread
-        {
-            let iface = interface.clone();
-            let sender_finish_signal = sender_finish_signal.clone();
-            handle = thread::spawn(move || {
-                threads::sender_thread(&iface, &ips, &sender_finish_signal);
-            });
-        }
-
-        // Block until sender is done
-        handle.join().expect("sender thread panic!");
+        // Send packets and signal receiver thread to release mutex to list of ips
+        send_packets(interface, &ips);
+        sender_finish_signal.store(true, Ordering::Relaxed);
 
         println!("Finished job #{}", job_id);
 
@@ -119,6 +112,28 @@ fn main() -> Result<()> {
     receiver_handle.join().expect("receiver thread panic!");
     Ok(())
 }
+
+pub fn send_packets(iface: &NetworkInterface, ips: &Vec<Ipv4Addr>) {
+    let (mut tx, _) = match pnet::datalink::channel(iface, Default::default()) {
+        Ok(Channel::Ethernet(tx, rx)) => (tx, rx),
+        Ok(_) => panic!("Wrong chanel type"),
+        Err(e) => panic!("Error creating channel: {}", e)
+    };
+    println!("Sending new packets");
+
+    let time_per_packet = Duration::from_micros((1000000.0 / config::get_send_rate() as f64) as u64);
+    println!("TPP: {} ms", time_per_packet.as_millis());
+    for ip in ips {
+        tx.build_and_send(1, 66, &mut |packet: &mut [u8]| {
+            generate_syn_packet(iface, ip, 25565, packet);
+        });
+        sleep(time_per_packet);
+    }
+}
+
+//
+// Utility functions
+//
 
 fn upload_ips(ips: &Vec<Ipv4Addr>) -> bool {
     // let ips_json = serde_json::to_string(ips).unwrap();
