@@ -9,35 +9,6 @@ use pnet::datalink::{Channel, Config, NetworkInterface};
 use crate::config;
 use crate::packet_handler::*;
 
-/// The sender thread sends out a single SYN packet to every IP address specified in the list.
-/// Once finished, it signals to the main thread using sender_finish_signal that it is done with the
-/// current IP batch.
-///
-/// # Arguments
-///
-/// * `iface`: The interface to use when sending out the packets
-/// * `ips`: The batch of IPs
-/// * `sender_finish_signal`: Gets set to true once batch is done
-///
-pub fn sender_thread(iface: &NetworkInterface, ips: &Vec<Ipv4Addr>, sender_finish_signal: &AtomicBool) {
-    let (mut tx, _) = match pnet::datalink::channel(iface, Default::default()) {
-        Ok(Channel::Ethernet(tx, rx)) => (tx, rx),
-        Ok(_) => panic!("Wrong chanel type"),
-        Err(e) => panic!("Error creating channel: {}", e)
-    };
-    println!("Sending new packets");
-
-    let time_per_packet = Duration::from_micros((1000000.0 / config::get_send_rate() as f64) as u64);
-    println!("TPP: {} ms", time_per_packet.as_millis());
-    for ip in ips {
-        tx.build_and_send(1, 66, &mut |packet: &mut [u8]| {
-            generate_syn_packet(iface, ip, 25565, packet);
-        });
-        sleep(time_per_packet);
-    }
-    sender_finish_signal.store(true, Ordering::Relaxed);
-}
-
 /// The receiver thread receives the answer (SYN ACK) to our packets. It tries to receive
 /// until the stop_signal is set to true, at which point it waits until a specified amount of time
 /// passes without having received an answer.
