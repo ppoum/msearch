@@ -1,6 +1,25 @@
 // A lot of info taken from https://wiki.vg/Protocol
 
+use std::error::Error;
+use std::fmt::{Display, Formatter};
 use std::io::{Read, Write};
+
+#[derive(Debug)]
+pub struct PacketParseError(pub String);
+
+impl PacketParseError {
+    pub fn message(&self) -> String {
+        self.0.clone()
+    }
+}
+
+impl Display for PacketParseError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Error parsing data: {}", self.0)
+    }
+}
+
+impl Error for PacketParseError {}
 
 pub struct MCPacket {
     id: Vec<u8>,
@@ -19,7 +38,7 @@ impl MCPacket {
         let packet_length = MCPacket::int_to_var_int((self.id.len() + self.data.len()) as u64);
         let mut result = packet_length;
         result.append(&mut self.id.clone());
-        if self.data.len() > 0 { result.append(&mut self.data.clone()); }
+        if !self.data.is_empty() { result.append(&mut self.data.clone()); }
         result
     }
 
@@ -59,27 +78,28 @@ impl MCPacket {
     }
 
     // Readers
-    pub fn read_var_int(s: &mut dyn Read) -> u64 {
+    pub fn read_var_int(s: &mut dyn Read) -> Result<u64, PacketParseError> {
         let mut val: u64 = 0;
         let mut i = 0;
         let mut iter = s.bytes();
 
         loop {
-            let byte = iter.next().expect("Ran out of bytes trying to read VarInt").unwrap();
+            let byte = iter.next().ok_or_else(|| PacketParseError("Ran out of bytes trying to read VarInt".into()))?
+                .map_err(|err| PacketParseError(format!("OS Error reading VarInt: {}", err)))?;
             val |= ((byte & 0b01111111) as u64) << i;
             i += 7;
 
             if (byte & 0b10000000) == 0 { break }  // Reached end of VarInt
             if i > 35 { panic!("VarInt#from_stream: VarInt too large") }
         }
-        val
+        Ok(val)
     }
 
-    pub fn read_string(s: &mut dyn Read) -> String {
-        let size = MCPacket::read_var_int(s);
+    pub fn read_string(s: &mut dyn Read) -> Result<String, PacketParseError> {
+        let size = MCPacket::read_var_int(s)?;
         let mut buf = vec![0; size as usize];
-        s.read_exact(buf.as_mut_slice()).expect("Error reading string from stream");
-        String::from_utf8(buf).expect("Error decoding string to UTF-8")
+        s.read_exact(buf.as_mut_slice()).map_err(|_| PacketParseError("Error reading string from stream".into()))?;
+        String::from_utf8(buf).map_err(|err| PacketParseError(format!("Error decoding string: {}", err)))
     }
 
     //
