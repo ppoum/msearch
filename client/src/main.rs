@@ -1,65 +1,76 @@
-mod data_types;
+mod mc_packet;
 mod checker;
-mod ip_dispatcher;
+mod config;
 
 extern crate pnet;
 
 use std::io::Result;
-use std::sync::{Arc, Mutex};
+use std::net::Ipv4Addr;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread;
-use ip_dispatcher::IpDispatcher;
-use pnet::packet::Packet;
+use std::thread::sleep;
+use std::time::Duration;
+use clap::Parser;
+use crate::checker::validate_server;
 
 pub const JOB_SIZE: usize = 256;
 pub const TCP_TIMEOUT_SECS: u64 = 2;
-const THREAD_COUNT: usize = 1;
-const STATUS_FREQ: usize = 1;
+
+#[derive(Parser)]
+#[command(author, version, about, long_about=None)]
+struct Cli {
+    #[arg(short, long="config")]
+    config_path: String
+}
+
 
 fn main() -> Result<()> {
-    println!("Launching");
+    let cli = Cli::parse();
 
-    let mut stop_signal = Arc::new(AtomicBool::new(false));
-    // stop_signal.store(true, Ordering::Relaxed);
-
-    let job_dispatch = Arc::new(Mutex::new(IpDispatcher::new()));
-
-    let mut thread_handles = Vec::new();
-    for tid in 0..THREAD_COUNT {
-        let stop_sig_copy = Arc::clone(&stop_signal);
-        let job_dispatch = job_dispatch.clone();
-        thread_handles.push(thread::spawn(move || {
-            thread_main(tid, &stop_sig_copy, &job_dispatch);
-        }));
+    if let Err(err) = config::load_config(&cli.config_path) {
+        panic!("Received the following error when parsing config file:\n{}", err);
     }
 
-    for t in thread_handles {
-        t.join().expect("thread panic!");
+
+    // Setup SIGINT handler
+    let stop_signal = Arc::new(AtomicBool::new(false));
+    {
+        let stop_signal = stop_signal.clone();
+        ctrlc::set_handler(move || {
+            println!("Received SIGINT signal, stopping client");
+            stop_signal.store(true, Ordering::Relaxed);
+        }).expect("Error setting SIGINT handler");
+    }
+
+    while !stop_signal.load(Ordering::Relaxed) {
+        println!("Trying to obtain an IP to scan");
+        let ip = get_ip();
+        if ip.is_none() {
+            println!("No IP available yet, waiting...");
+            sleep(Duration::from_secs(5));
+            continue;
+        }
+
+        let ip = ip.unwrap();
+        println!("Scanning {}", ip);
+        if let Ok(json) = validate_server(ip) {
+            println!("SERVER FOUND!\nDesc: {}\nPlayers: {}/{}\n{}", json["description"],
+                     json["players"]["online"], json["players"]["max"], json["players"]["sample"]);
+        }
+        // TODO push results to dispatcher (MC-10) (push even if no server found, to confirm proper
+        //  deep scan of server
     }
 
     Ok(())
 }
 
-fn thread_main(id: usize, stop_signal: &AtomicBool, job_dispatch_mtx: &Mutex<IpDispatcher>) {
-    println!("Launching thread #{}", id);
+fn get_ip() -> Option<Ipv4Addr> {
+    let url = format!("{}/client/job", config::get_dispatcher_base());
+    let res = reqwest::blocking::get(url).unwrap();
 
-    while !stop_signal.load(Ordering::Relaxed) {
-        let job;
-        {
-            job = job_dispatch_mtx.lock().unwrap().get_job();
-        }
-        for (i, addr) in job.into_iter().enumerate() {
-            // Every n tries, print check if stop signal and print progress status
-            if i % STATUS_FREQ == 0 {
-                if stop_signal.load(Ordering::Relaxed) { break }
-                println!("Trying {} on thread #{}", addr, id);
-            }
-            if let Ok(json) = checker::validate_server(addr) {
-                // Important data in JSON object: version.name, players.{online, max}, players.sample[?].name, description.text, favicon
-                println!("VALID: {} (thread {})\nDesc: {}\n Players: {}/{}\n{}",
-                         addr, id, json["description"]["text"],
-                         json["players"]["online"], json["players"]["max"], json["players"]["sample"]);
-            }
-        }
+    if res.status() == reqwest::StatusCode::NOT_FOUND {
+        return None;
     }
+    let t = res.text().unwrap();
+    Some(t.parse().unwrap())
 }
