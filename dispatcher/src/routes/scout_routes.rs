@@ -38,7 +38,6 @@ pub fn get_all_routes() -> Vec<Route> {
 #[get("/job/<size>")]
 fn get_job(size: usize, state: &State<ServerState>) -> Json<ScoutJob> {
     let mut ip_iterator = state.ip_range.lock().unwrap();
-    // let x: Vec<Ipv4Addr> = ip_iterator.take(size).collect();
     let mut ips: Vec<Ipv4Addr> = Vec::new();
 
     while ips.len() < size {
