@@ -64,8 +64,13 @@ fn main() -> Result<()> {
     {
         let stop_signal = stop_signal.clone();
         ctrlc::set_handler(move || {
-            println!("Received Ctrl+C!");
-            stop_signal.store(true, Ordering::Relaxed);
+            if stop_signal.load(Ordering::Relaxed) {
+                println!("Received second SIGINT, forcefully exiting.");
+                std::process::exit(1);
+            } else {
+                println!("Received SIGINT signal, stopping client");
+                stop_signal.store(true, Ordering::Relaxed);
+            }
         }).expect("Error setting Ctrl+C handler");
     }
 
@@ -97,14 +102,11 @@ fn main() -> Result<()> {
         // Lock ip vec mutex
         let mut valid_ips = valid_ips_mtx.lock().unwrap();
         println!("{:?}", valid_ips);
-        if upload_ips(&valid_ips) {
-            // Successful upload
-            println!("Successfully uploaded job result");
-        } else {
-            println!("Could not upload job to dispatch server");
-            break;
+        while !upload_ips(&valid_ips) {
+            println!("Error uploading job to dispatch server, retrying in 5 seconds.");
+            sleep(Duration::from_secs(5));
         }
-        // Done using ip vector, clear vector and set finish signal to false again
+        println!("Successfully uploaded job result");
         valid_ips.clear();
         sender_finish_signal.store(false, Ordering::Relaxed);
     }
@@ -122,7 +124,7 @@ pub fn send_packets(iface: &NetworkInterface, ips: &Vec<Ipv4Addr>) {
     println!("Sending new packets");
 
     let time_per_packet = Duration::from_micros((1000000.0 / config::get_send_rate() as f64) as u64);
-    println!("TPP: {} ms", time_per_packet.as_millis());
+    println!("TPP: {} us", time_per_packet.as_micros());
     for ip in ips {
         tx.build_and_send(1, 66, &mut |packet: &mut [u8]| {
             generate_syn_packet(iface, ip, 25565, packet);
@@ -136,8 +138,6 @@ pub fn send_packets(iface: &NetworkInterface, ips: &Vec<Ipv4Addr>) {
 //
 
 fn upload_ips(ips: &Vec<Ipv4Addr>) -> bool {
-    // let ips_json = serde_json::to_string(ips).unwrap();
-
     let client = reqwest::blocking::Client::new();
     let url = format!("{}/scout/ips", config::get_dispatcher_base());
     client.post(url).json(ips).send().is_ok()
@@ -145,8 +145,27 @@ fn upload_ips(ips: &Vec<Ipv4Addr>) -> bool {
 
 fn get_job() -> (Vec<Ipv4Addr>, u32) {
     let url = format!("{}/scout/job/{}", config::get_dispatcher_base(), config::get_job_size());
-    let res = reqwest::blocking::get(url)
-        .unwrap().text().unwrap();
+    let client = reqwest::blocking::Client::new();
+    let res;
+    loop {
+        match client.get(&url).send() {
+            Ok(r) => {
+                if r.status() == reqwest::StatusCode::OK {
+                    res = r;
+                    break;
+                } else {
+                    println!("Received invalid response from server, retrying in 5 seconds...");
+                    sleep(Duration::from_secs(5));
+                }
+            },
+            Err(_) => {
+                println!("Error getting job from dispatch server, retrying in 5 seconds.");
+                sleep(Duration::from_secs(5));
+            }
+        }
+    }
+
+    let res = res.text().unwrap();
     let json: Value = serde_json::from_str(&res).unwrap();
     let job_id: u32 = json["id"].as_u64().unwrap() as u32;
     let ips: Vec<Ipv4Addr> = json["ips"].as_array().unwrap().iter()

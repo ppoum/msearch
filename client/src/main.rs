@@ -38,8 +38,13 @@ fn main() -> Result<()> {
     {
         let stop_signal = stop_signal.clone();
         ctrlc::set_handler(move || {
-            println!("Received SIGINT signal, stopping client");
-            stop_signal.store(true, Ordering::Relaxed);
+            if stop_signal.load(Ordering::Relaxed) {
+                println!("Received second SIGINT, forcefully exiting.");
+                std::process::exit(1);
+            } else {
+                println!("Received SIGINT signal, stopping client");
+                stop_signal.store(true, Ordering::Relaxed);
+            }
         }).expect("Error setting SIGINT handler");
     }
 
@@ -69,11 +74,28 @@ fn main() -> Result<()> {
 
 fn get_job() -> Option<(u32, Ipv4Addr)> {
     let url = format!("{}/client/job", config::get_dispatcher_base());
-    let res = reqwest::blocking::get(url).unwrap();
+    let client = reqwest::blocking::Client::new();
+    let res;
+    loop {
+        match client.get(&url).send() {
+            Ok(r) => {
+                res = r;
+                break;
+            }
+            Err(_) => {
+                println!("Error sending request to server, retrying in 5 seconds.");
+                sleep(Duration::from_secs(5));
+            }
+        }
+    }
 
     if res.status() == reqwest::StatusCode::NOT_FOUND {
         return None;
+    } else if res.status() != reqwest::StatusCode::OK {
+        println!("Unknown status code received from dispatch server.");
+        return None;
     }
+
     let t = res.text().unwrap();
     let v: Value = match serde_json::from_str(&t) {
         Ok(v) => v,
@@ -118,6 +140,13 @@ fn send_results(id: u32, ip: Ipv4Addr, response: Option<&str>) {
     };
 
     let client = reqwest::blocking::Client::new();
-    let res = client.post(url)
-        .json(&body).send();
+    loop {
+        match client.post(&url).json(&body).send() {
+            Ok(_) => break,
+            Err(_) => {
+                println!("Error uploading data to server, retrying in 5 seconds.");
+                sleep(Duration::from_secs(5));
+            }
+        }
+    }
 }
