@@ -12,9 +12,9 @@ static JOB_ID: AtomicU32 = AtomicU32::new(0);
 
 #[derive(Deserialize, Copy, Clone)]
 pub struct ClientJob {
-    id: u32,
+    pub id: u32,
     pub ip: Ipv4Addr,
-    creation_time: SystemTime
+    pub creation_time: SystemTime
 }
 
 // Default used when deserializing w/ missing fields

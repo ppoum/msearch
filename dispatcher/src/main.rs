@@ -8,10 +8,12 @@ use std::{fs, io};
 use std::net::Ipv4Addr;
 use std::path::Path;
 use std::sync::Mutex;
+use std::time::{Duration, SystemTime};
 use actix_web::{App, HttpServer};
 use actix_web::middleware::Logger;
 use actix_web::web::Data;
 use serde::{Deserialize, Serialize};
+use tokio::{task, time};
 use crate::ip_chunk_iterator::IpChunkIterator;
 use crate::routes::client_routes::{ClientJob, get_client_scope};
 use crate::routes::info_routes::get_info_scope;
@@ -26,6 +28,7 @@ pub struct ServerState {
 
 #[actix_web::main]
 async fn main() -> io::Result<()> {
+    // Generate server state from saved state, or generate new
     println!("Trying to load previously saved server state");
     let server_state: Data<ServerState> = if Path::new("./.dispatcher").exists() {
         println!("Found file, loading it");
@@ -40,6 +43,40 @@ async fn main() -> io::Result<()> {
         })
     };
 
+    // Start recurring job
+    {
+        let server_state = server_state.clone();
+        task::spawn(async move {
+            let mut interval = time::interval(Duration::from_secs(60));
+
+            loop {
+                interval.tick().await;
+                println!("Cleaning up outstanding client jobs.");
+                let mut outstanding = server_state.outstanding_client_jobs.lock().unwrap();
+                let mut valid_ips = server_state.valid_ips.lock().unwrap();
+
+                outstanding.retain(|job| {
+                    match SystemTime::now().duration_since(job.creation_time) {
+                        Ok(d) => {
+                            if d > Duration::from_secs(60) {
+                                // Task is older than 1 minute, remove from outstanding, add back to valid_ips
+                                println!("Removing job: {} - {}", job.id, job.ip);
+                                let ip = job.ip;
+                                valid_ips.push_front(ip);
+                                return false;  // Remove from list
+                            }
+                            true  // Not too old yet, keep in list
+                        },
+
+                        Err(_) => true  // Error means creation_time more recent than system time, ignore error and keep job
+                    }
+                });
+                println!("Finished cleaning outstanding client jobs.")
+            }
+        });
+    }
+
+    // Start web server
     env_logger::init();
     let state_copy = server_state.clone();
     HttpServer::new(move || {
