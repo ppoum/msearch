@@ -1,13 +1,11 @@
 use std::net::{AddrParseError, Ipv4Addr};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::SystemTime;
-use rocket::response::status;
-use rocket::{Route, State};
-use rocket::response::status::BadRequest;
-use rocket::serde::json;
-use rocket::serde::json::{Json, Value};
+use actix_web::{HttpResponse, Scope, Result, Responder, error, get, post};
+use actix_web::web::{Data, Path, scope};
 use serde::{Deserialize, Serialize, Serializer};
 use serde::ser::SerializeStruct;
+use serde_json::Value;
 use crate::ServerState;
 
 static JOB_ID: AtomicU32 = AtomicU32::new(0);
@@ -39,12 +37,14 @@ impl Serialize for ClientJob {
     }
 }
 
-pub fn get_all_routes() -> Vec<Route> {
-    routes![get_job, post_job]
+pub fn get_client_scope() -> Scope {
+    scope("/client")
+        .service(get_job)
+        .service(post_job)
 }
 
 #[get("/job")]
-fn get_job(state: &State<ServerState>) -> Result<Json<ClientJob>, status::NotFound<&str>> {
+async fn get_job(state: Data<ServerState>) -> Result<impl Responder> {
     let mut valid_ips = state.valid_ips.lock().unwrap();
 
     match valid_ips.pop_front() {
@@ -58,9 +58,9 @@ fn get_job(state: &State<ServerState>) -> Result<Json<ClientJob>, status::NotFou
             let mut outstanding = state.outstanding_client_jobs.lock().unwrap();
             outstanding.push_back(job);
 
-            Ok(Json(job))
+            Ok(HttpResponse::Ok().json(job))
         },
-        None => Err(status::NotFound("No job available"))
+        None => Err(error::ErrorNotFound("No job available"))
     }
 }
 
@@ -83,19 +83,21 @@ fn get_job(state: &State<ServerState>) -> Result<Json<ClientJob>, status::NotFou
 /// `description`, `favicon` (optional, b64 png format)
 /// `players.sample` is also an optional field, and will be omitted from the response
 /// if there are no online players (`players.online==0`)
-#[post("/job/<id>", data = "<json>")]
-fn post_job(id: u32, json: &str, state: &State<ServerState>) -> Result<status::Accepted<String>, BadRequest<String>> {
+#[post("/job/{id}")]
+async fn post_job(path: Path<u32>, json: String, state: Data<ServerState>) -> Result<impl Responder> {
+    let id = path.into_inner();
+
     if json.is_empty() {
-        return Err(BadRequest(Some(String::from("Invalid json data received (empty)"))));
+        return Ok(HttpResponse::BadRequest().body("Invalid JSON data received (empty)"));
     }
 
     // Parse json
-    let json: Value = json::from_str(json).map_err(|e| BadRequest(Some(e.to_string())))?;
+    let json: Value = serde_json::from_str(&json).map_err(|e| error::ErrorBadRequest(e.to_string()))?;
     let status = json["status"].as_str()
-        .ok_or_else(|| BadRequest(Some(String::from("Missing 'status' field"))))?;
+        .ok_or_else(|| error::ErrorBadRequest("Missing 'status' field"))?;
     let ip: Ipv4Addr = json["ip"].as_str()
-        .ok_or_else(|| BadRequest(Some(String::from("Missing `ip` field"))))?
-        .parse().map_err(|e: AddrParseError| BadRequest(Some(e.to_string())))?;
+        .ok_or_else(|| error::ErrorBadRequest("Missing `ip` field"))?
+        .parse().map_err(|e: AddrParseError| error::ErrorBadRequest(e.to_string()))?;
     let response = json["response"].clone();
 
     if status.to_lowercase() != "up" {
@@ -104,13 +106,13 @@ fn post_job(id: u32, json: &str, state: &State<ServerState>) -> Result<status::A
         if let Some(idx) = outstanding.iter().position(|x| x.id == id && x.ip == ip) {
             outstanding.remove(idx);
         };
-        return Ok(status::Accepted(None))
+        return Ok(HttpResponse::Ok().finish());
     }
 
     // Server is up, expect response
     if response.is_null() {
         // Empty response when status is up, invalid state
-        return Err(BadRequest(Some(String::from("No response provided when status is  'up'"))));
+        return Err(error::ErrorBadRequest("No response provided while status is 'up'"));
     }
 
     // Get fields
@@ -127,5 +129,5 @@ fn post_job(id: u32, json: &str, state: &State<ServerState>) -> Result<status::A
         outstanding.remove(idx);
     };
 
-    Ok(status::Accepted(None))
+    Ok(HttpResponse::Ok().finish())
 }

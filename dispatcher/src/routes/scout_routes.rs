@@ -1,19 +1,16 @@
 use std::collections::VecDeque;
 use std::net::Ipv4Addr;
 use std::sync::atomic::{AtomicU32, Ordering};
+use actix_web::{HttpResponse, Responder, Scope, Result, post, get, error};
+use actix_web::web::{Data, Path, scope};
 use itertools::Itertools;
-use rocket::{get, Route, State};
-use rocket::response::status;
-use rocket::response::status::BadRequest;
+use serde::{Serialize, Serializer};
+use serde::ser::SerializeStruct;
 use crate::ServerState;
-use rocket::serde::json::Json;
-use rocket::serde::{Deserialize, json, Serialize, Serializer};
-use rocket::serde::ser::SerializeStruct;
 
 static JOB_ID: AtomicU32 = AtomicU32::new(0);
 
-#[derive(Clone, Deserialize)]
-#[serde(crate = "rocket::serde")]
+#[derive(Clone)]
 pub struct ScoutJob {
     id: u32,
     ips: Vec<Ipv4Addr>
@@ -28,15 +25,19 @@ impl Serialize for ScoutJob {
     }
 }
 
-pub fn get_all_routes() -> Vec<Route> {
-    routes![get_job, post_ips]
+pub fn get_scout_scope() -> Scope {
+    scope("/scout")
+        .service(get_job)
+        .service(post_ips)
 }
 
 
 // ROUTES
 
-#[get("/job/<size>")]
-fn get_job(size: usize, state: &State<ServerState>) -> Json<ScoutJob> {
+#[get("/job/{size}")]
+async fn get_job(path: Path<usize>, state: Data<ServerState>) -> impl Responder {
+    let size = path.into_inner();
+
     let mut ip_iterator = state.ip_range.lock().unwrap();
     let mut ips: Vec<Ipv4Addr> = Vec::new();
 
@@ -51,18 +52,19 @@ fn get_job(size: usize, state: &State<ServerState>) -> Json<ScoutJob> {
         ips,
         id: JOB_ID.fetch_add(1, Ordering::SeqCst)
     };
-    Json(new_job)
+
+    HttpResponse::Ok().json(new_job)
 }
 
-#[post("/ips", data = "<json>")]
-fn post_ips(json: &str, state: &State<ServerState>) -> Result<status::Accepted<String>, BadRequest<String>> {
-    let ips: Vec<String> = json::from_str(json).map_err(|e| BadRequest(Some(e.to_string())))?;
+#[post("/ips")]
+async fn post_ips(json: String, state: Data<ServerState>) -> Result<impl Responder> {
+    let ips: Vec<String> = serde_json::from_str(&json).map_err(|e| error::ErrorBadRequest(e.to_string()))?;
     let ips: VecDeque<Ipv4Addr> = ips.iter().map(|x| x.parse().unwrap()).unique().collect();
     println!("Received the following ips: {:?}", ips);
 
     if ips.is_empty() {
         // Return before trying to gain mutex lock
-        return Ok(status::Accepted(None));
+        return Ok(HttpResponse::Ok().finish());
     }
 
     let mut valid_ips = state.valid_ips.lock().unwrap();
@@ -74,5 +76,5 @@ fn post_ips(json: &str, state: &State<ServerState>) -> Result<status::Accepted<S
         }
     }
 
-    Ok(status::Accepted(None))
+    Ok(HttpResponse::Ok().finish())
 }
