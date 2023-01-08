@@ -1,16 +1,15 @@
-use std::collections::VecDeque;
-use std::net::Ipv4Addr;
 use std::ops::Deref;
-use rocket::serde::json::Json;
-use rocket::{Route, State};
+use actix_web::{get, HttpResponse, Responder, Scope};
+use actix_web::web::{Data, scope};
 use crate::ServerState;
 
-pub fn get_all_routes() -> Vec<Route> {
-    routes![get_valid_ips]
+pub fn get_info_scope() -> Scope {
+    scope("/info")
+        .service(get_valid_ips)
 }
 
 #[get("/ips")]
-fn get_valid_ips(state: &State<ServerState>) -> Json<VecDeque<Ipv4Addr>> {
+async fn get_valid_ips(state: Data<ServerState>) -> impl Responder {
     let ips = state.valid_ips.lock().unwrap();
-    Json(ips.deref().clone())
+    HttpResponse::Ok().json(ips.deref())
 }
