@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::sleep;
 use std::time::Duration;
 use clap::Parser;
+use serde_json::{json, Value};
 use crate::checker::validate_server;
 
 pub const JOB_SIZE: usize = 256;
@@ -44,27 +45,29 @@ fn main() -> Result<()> {
 
     while !stop_signal.load(Ordering::Relaxed) {
         println!("Trying to obtain an IP to scan");
-        let ip = get_ip();
-        if ip.is_none() {
+        let job = get_job();
+        if job.is_none() {
             println!("No IP available yet, waiting...");
             sleep(Duration::from_secs(5));
             continue;
         }
 
-        let ip = ip.unwrap();
+        let (id, ip) = job.unwrap();
         println!("Scanning {}", ip);
         if let Ok(json) = validate_server(ip) {
+            send_results(id, ip, Some(&json));
+            let json: Value = serde_json::from_str(&json)?;
             println!("SERVER FOUND!\nDesc: {}\nPlayers: {}/{}\n{}", json["description"],
                      json["players"]["online"], json["players"]["max"], json["players"]["sample"]);
+        } else {
+            send_results(id, ip, None);
         }
-        // TODO push results to dispatcher (MC-10) (push even if no server found, to confirm proper
-        //  deep scan of server
     }
 
     Ok(())
 }
 
-fn get_ip() -> Option<Ipv4Addr> {
+fn get_job() -> Option<(u32, Ipv4Addr)> {
     let url = format!("{}/client/job", config::get_dispatcher_base());
     let res = reqwest::blocking::get(url).unwrap();
 
@@ -72,5 +75,49 @@ fn get_ip() -> Option<Ipv4Addr> {
         return None;
     }
     let t = res.text().unwrap();
-    Some(t.parse().unwrap())
+    let v: Value = match serde_json::from_str(&t) {
+        Ok(v) => v,
+        Err(_) => return None
+    };
+
+    // Validate id field
+    let id = match v["id"].as_str() {
+        Some(s) => s,
+        None => return None
+    };
+    let id = match id.parse() {
+        Ok(u) => u,
+        Err(_) => return None
+    };
+
+    // Validate IP field
+    let ip = match v["ip"].as_str() {
+        Some(s) => s,
+        None => return None
+    };
+    let ip = match ip.parse() {
+        Ok(i) => i,
+        Err(_) => return None
+    };
+
+    Some((id, ip))
+}
+
+fn send_results(id: u32, ip: Ipv4Addr, response: Option<&str>) {
+    let url = format!("{}/client/job/{}", config::get_dispatcher_base(), id);
+    let body = match response {
+        Some(response) => json!({
+            "status": "up",
+            "ip": ip.to_string(),
+            "response": response
+        }),
+        None => json!({
+            "status": "down",
+            "ip": ip.to_string(),
+        })
+    };
+
+    let client = reqwest::blocking::Client::new();
+    let res = client.post(url)
+        .json(&body).send();
 }
