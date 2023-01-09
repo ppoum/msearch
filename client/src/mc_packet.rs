@@ -13,6 +13,12 @@ impl PacketParseError {
     }
 }
 
+impl PacketParseError {
+    pub fn new(s: &str) -> Self {
+        Self(String::from(s))
+    }
+}
+
 impl Display for PacketParseError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "Error parsing data: {}", self.0)
@@ -84,7 +90,7 @@ impl MCPacket {
         let mut iter = s.bytes();
 
         loop {
-            let byte = iter.next().ok_or_else(|| PacketParseError("Ran out of bytes trying to read VarInt".into()))?
+            let byte = iter.next().ok_or_else(|| PacketParseError::new("Ran out of bytes trying to read VarInt"))?
                 .map_err(|err| PacketParseError(format!("OS Error reading VarInt: {}", err)))?;
             val |= ((byte & 0b01111111) as u64) << i;
             i += 7;
@@ -98,7 +104,7 @@ impl MCPacket {
     pub fn read_string(s: &mut dyn Read) -> Result<String, PacketParseError> {
         let size = MCPacket::read_var_int(s)?;
         let mut buf = vec![0; size as usize];
-        s.read_exact(buf.as_mut_slice()).map_err(|_| PacketParseError("Error reading string from stream".into()))?;
+        s.read_exact(buf.as_mut_slice()).map_err(|_| PacketParseError::new("Error reading string from stream"))?;
         String::from_utf8(buf).map_err(|err| PacketParseError(format!("Error decoding string: {}", err)))
     }
 
