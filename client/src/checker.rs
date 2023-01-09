@@ -7,6 +7,12 @@ use crate::mc_packet::{MCPacket, PacketParseError};
 #[derive(Debug)]
 pub struct InvalidServerError(String);
 
+impl InvalidServerError {
+    pub fn new(s: &str) -> Self {
+        Self(String::from(s))
+    }
+}
+
 impl Display for InvalidServerError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "Error occurred when trying to validate server: {}", self.0)
@@ -18,9 +24,9 @@ impl Error for InvalidServerError {}
 pub fn validate_server(addr: Ipv4Addr) -> Result<String, InvalidServerError> {
     let socket_addr = SocketAddr::new(IpAddr::V4(addr), 25565);
     let mut stream = TcpStream::connect_timeout(&socket_addr, Duration::from_secs(crate::TCP_TIMEOUT_SECS))
-        .map_err(|_| InvalidServerError("Timed out connecting to host".into()))?;
+        .map_err(|_| InvalidServerError::new("Timed out connecting to host"))?;
     stream.set_read_timeout(Some(Duration::from_secs(crate::TCP_TIMEOUT_SECS)))
-        .map_err(|_| InvalidServerError("Error when trying to set read timeout".into()))?;
+        .map_err(|_| InvalidServerError::new("Error when trying to set read timeout"))?;
 
     // Initialize MC connection
     MCPacket::status_handshake(&addr.to_string(), 25565).write_to_stream(&mut stream);
