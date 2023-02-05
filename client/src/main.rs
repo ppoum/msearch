@@ -18,10 +18,10 @@ pub const JOB_SIZE: usize = 256;
 pub const TCP_TIMEOUT_SECS: u64 = 2;
 
 #[derive(Parser)]
-#[command(author, version, about, long_about=None)]
+#[command(author, version, about, long_about = None)]
 struct Cli {
-    #[arg(short, long="config")]
-    config_path: String
+    #[arg(short, long = "config")]
+    config_path: String,
 }
 
 
@@ -61,9 +61,11 @@ fn main() -> Result<()> {
         println!("Scanning {}", ip);
         if let Ok(json) = validate_server(ip) {
             send_results(id, ip, Some(&json));
-            let json: Value = serde_json::from_str(&json)?;
-            println!("SERVER FOUND!\nDesc: {}\nPlayers: {}/{}\n{}", json["description"],
-                     json["players"]["online"], json["players"]["max"], json["players"]["sample"]);
+            if let Ok(json) = serde_json::from_str::<Value>(&json) {
+                println!("SERVER FOUND ({})!\nDesc: {}\nPlayers: {}/{}\n{}", json["version"]["name"],
+                         json["description"], json["players"]["online"], json["players"]["max"],
+                         json["players"]["sample"]);
+            }
         } else {
             send_results(id, ip, None);
         }
@@ -127,16 +129,26 @@ fn get_job() -> Option<(u32, Ipv4Addr)> {
 
 fn send_results(id: u32, ip: Ipv4Addr, response: Option<&str>) {
     let url = format!("{}/client/job/{}", config::get_dispatcher_base(), id);
-    let body = match response {
-        Some(response) => json!({
-            "status": "up",
-            "ip": ip.to_string(),
-            "response": response
-        }),
-        None => json!({
-            "status": "down",
-            "ip": ip.to_string(),
-        })
+
+    let parsed_response: Option<Value> = match response {
+        Some(s) => serde_json::from_str(s).ok(),
+        None => None
+    };
+
+    let body = match parsed_response {
+        Some(v) => {
+            json!({
+                "status": "up",
+                "ip": ip.to_string(),
+                "response": v
+            })
+        }
+        None => {
+            json!({
+                "status": "down",
+                "ip": ip.to_string()
+            })
+        }
     };
 
     let client = reqwest::blocking::Client::new();

@@ -5,6 +5,10 @@ edition = "2021"
 
 [dependencies]
 actix-web = "4.2"
+diesel = { version = "2.0", features = ["postgres", "r2d2", "ipnet-address", "uuid"] }
+r2d2 = "0.8"
+uuid = "1.2"
+dotenvy = "0.15"
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 log = "0.4"
@@ -13,3 +17,6 @@ ipnet = "2.5"
 itertools = "0.10"
 rand = "0.8"
 tokio = { version = "1.23", features = ["macros"] }
+futures = "0.3"
+reqwest = { version = "0.11", features = ["json", "blocking"] }
+custom_error = "1.9"

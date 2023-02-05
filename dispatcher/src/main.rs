@@ -1,10 +1,14 @@
 extern crate env_logger;
+extern crate r2d2;
+extern crate custom_error;
 
+mod models;
+mod schema;
 mod routes;
 mod ip_chunk_iterator;
 
 use std::collections::VecDeque;
-use std::{fs, io};
+use std::{env, fs, io};
 use std::net::Ipv4Addr;
 use std::path::Path;
 use std::sync::Mutex;
@@ -12,12 +16,19 @@ use std::time::{Duration, SystemTime};
 use actix_web::{App, HttpServer};
 use actix_web::middleware::Logger;
 use actix_web::web::Data;
+use diesel::pg::PgConnection;
+use diesel::r2d2::ConnectionManager;
+use dotenvy::dotenv;
+use r2d2::PooledConnection;
 use serde::{Deserialize, Serialize};
 use tokio::{task, time};
 use crate::ip_chunk_iterator::IpChunkIterator;
 use crate::routes::client_routes::{ClientJob, get_client_scope};
 use crate::routes::info_routes::get_info_scope;
 use crate::routes::scout_routes::get_scout_scope;
+
+pub type DbPool = r2d2::Pool<ConnectionManager<PgConnection>>;
+pub type DbConnection = PooledConnection<ConnectionManager<PgConnection>>;
 
 #[derive(Serialize, Deserialize)]
 pub struct ServerState {
@@ -28,6 +39,9 @@ pub struct ServerState {
 
 #[actix_web::main]
 async fn main() -> io::Result<()> {
+    // Load vars from .env
+    dotenv().ok();
+
     // Generate server state from saved state, or generate new
     println!("Trying to load previously saved server state");
     let server_state: Data<ServerState> = if Path::new("./.dispatcher").exists() {
@@ -42,6 +56,12 @@ async fn main() -> io::Result<()> {
             outstanding_client_jobs: Mutex::new(VecDeque::new())
         })
     };
+
+    // Connect to database
+    let url = env::var("DATABASE_URL").expect("DATABASE_URL variable not defined!");
+    let manager = ConnectionManager::<PgConnection>::new(url);
+    let pool = r2d2::Pool::builder()
+        .build(manager).expect("Failed to create pool.");
 
     // Start recurring job
     {
@@ -83,6 +103,7 @@ async fn main() -> io::Result<()> {
         App::new()
             .wrap(Logger::default())
             .app_data(state_copy.clone())
+            .app_data(Data::new(pool.clone()))
             .service(get_client_scope())
             .service(get_scout_scope())
             .service(get_info_scope())
